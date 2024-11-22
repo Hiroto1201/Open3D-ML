@@ -22,13 +22,14 @@ class FocalLoss(nn.Module):
         loss_weight (float, optional): Weight of loss. Defaults to 1.0.
     """
 
-    def __init__(self, gamma=2.0, alpha=0.25, loss_weight=1.0):
+    def __init__(self, gamma=2.0, alpha=0.25, loss_weight=1.0, log_weight=0.0):
         super(FocalLoss, self).__init__()
         self.gamma = gamma
         self.alpha = alpha
-        self.loss_weight = loss_weight
+        self.loss_weight = float(loss_weight)
+        self.log_weight = float(log_weight)
 
-    def forward(self, pred, target, weight=None, avg_factor=None):
+    def forward(self, pred, target, avg_factor=None):
         pred_sigmoid = pred.sigmoid()
         if len(pred.shape) > 1:
             target = one_hot(target, int(pred.shape[-1]))
@@ -41,10 +42,8 @@ class FocalLoss(nn.Module):
         loss = F.binary_cross_entropy_with_logits(
             pred, target, reduction='none') * focal_weight
 
-        if weight is not None:
-            loss = loss * weight
-
-        loss = loss * self.loss_weight
+        if self.loss_weight >= 0.:
+            loss = loss * self.loss_weight
 
         if avg_factor is None:
             return loss.mean()

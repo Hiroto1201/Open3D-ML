@@ -179,7 +179,7 @@ class NuScenes(BaseDataset):
 
         Args:
             split: A string identifying the dataset split that is usually one of
-            'training', 'test', 'validation', or 'all'.
+            'training', 'val', 'test', or 'all'.
 
         Returns:
             A dataset split object providing the requested subset of the data.
@@ -191,22 +191,21 @@ class NuScenes(BaseDataset):
 
         Args:
             split: A string identifying the dataset split that is usually one of
-            'training', 'test', 'validation', or 'all'.
+            'train', 'val', 'test', or 'all'.
 
         Returns:
             A dataset split object providing the requested subset of the data.
 
         Raises:
             ValueError: Indicates that the split name passed is incorrect. The
-                split name should be one of 'training', 'test', 'validation', or
-                'all'.
+                split name should be one of 'train', 'val', 'test' or 'all'.
         """
         if split in ['train', 'training']:
             return self.train_info
-        elif split in ['test', 'testing']:
-            return self.test_info
         elif split in ['val', 'validation']:
             return self.val_info
+        elif split in ['test', 'testing']:
+            return self.test_info
 
         raise ValueError("Invalid split {}".format(split))
 

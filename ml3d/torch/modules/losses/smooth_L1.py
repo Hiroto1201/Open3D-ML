@@ -13,19 +13,18 @@ class SmoothL1Loss(nn.Module):
         loss_weight (float, optional): The weight of loss.
     """
 
-    def __init__(self, beta=1.0, loss_weight=1.0):
+    def __init__(self, beta=1.0, loss_weight=1.0, log_weight=0.0):
         super(SmoothL1Loss, self).__init__()
         self.beta = beta
-        self.loss_weight = loss_weight
+        self.loss_weight = float(loss_weight)
+        self.log_weight = float(log_weight)
 
-    def forward(self, pred, target, weight=None, avg_factor=None, **kwargs):
+    def forward(self, pred, target, avg_factor=None, **kwargs):
         """Forward function.
 
         Args:
             pred (torch.Tensor): The prediction.
             target (torch.Tensor): The learning target of the prediction.
-            weight (torch.Tensor, optional): The weight of loss for each
-                prediction. Defaults to None.
             avg_factor (int, optional): Average factor that is used to average
                 the loss. Defaults to None.
             reduction_override (str, optional): The reduction method used to
@@ -36,10 +35,8 @@ class SmoothL1Loss(nn.Module):
         diff = torch.abs(pred - target)
         loss = torch.where(diff < self.beta, 0.5 * diff * diff / self.beta,
                            diff - 0.5 * self.beta)
-        if weight is not None:
-            loss = loss * weight
-
-        loss = loss * self.loss_weight
+        if self.loss_weight >= 0.:
+            loss = loss * self.loss_weight
 
         if avg_factor:
             return loss.sum() / avg_factor

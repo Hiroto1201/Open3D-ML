@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 
 from ...utils import Cache, get_hash
 
+import numpy as np
 
 class TorchDataloader(Dataset):
     """This class allows you to load datasets for a PyTorch framework.

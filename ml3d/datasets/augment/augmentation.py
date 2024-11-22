@@ -440,14 +440,14 @@ class ObjdetAugmentation(Augmentation):
         bev_range = pcd_range[[0, 1, 3, 4]]
 
         filtered_boxes = []
-        for box in data['bounding_boxes']:
-            if self.in_range_bev(bev_range, box.to_xyzwhlr()):
+        for box in data['bbox_objs']:
+            if self.in_range_bev(bev_range, box.to_xyzwlhr()):
                 filtered_boxes.append(box)
 
         return {
             'point': data['point'],
-            'bounding_boxes': filtered_boxes,
-            'calib': data['calib']
+            'bbox_objs': filtered_boxes,
+            'calib': data['calib'],
         }
 
     def ObjectSample(self, data, db_boxes_dict, sample_dict):
@@ -457,16 +457,16 @@ class ObjdetAugmentation(Augmentation):
         all objects within the dataset. Checks collision with existing objects.
 
         Args:
-            data: Input data dict with keys ('point', 'bounding_boxes', 'calib').
+            data: Input data dict with keys ('point', 'bbox_objs', 'calib').
             db_boxes_dict: dict for different objects.
             sample_dict: dict for number of objects to sample.
 
         """
         rate = 1.0
         points = data['point']
-        bboxes = data['bounding_boxes']
+        bboxes = data['bbox_objs']
 
-        gt_labels_3d = [box.label_class for box in data['bounding_boxes']]
+        gt_labels_3d = [box.label_class for box in data['bbox_objs']]
 
         sampled_num_dict = {}
 
@@ -497,7 +497,7 @@ class ObjdetAugmentation(Augmentation):
 
         return {
             'point': points,
-            'bounding_boxes': bboxes,
+            'bbox_objs': bboxes,
             'calib': data['calib']
         }
 

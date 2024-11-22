@@ -352,8 +352,8 @@ class RandLANet(BaseModel):
     def get_optimizer(self, cfg_pipeline):
         optimizer = torch.optim.Adam(self.parameters(),
                                      **cfg_pipeline.optimizer)
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(
-            optimizer, cfg_pipeline.scheduler_gamma)
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, **cfg_pipeline.scheduler)
         return optimizer, scheduler
 
     def get_loss(self, Loss, results, inputs, device):

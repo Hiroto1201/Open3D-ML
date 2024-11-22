@@ -230,7 +230,7 @@ def center_to_corner_box2d(boxes, origin=0.5):
     """
     if len(boxes) == 0:
         return np.zeros((0, 4, 2))
-    flat_boxes = np.array([box.to_xyzwhlr() for box in boxes])
+    flat_boxes = np.array([box.to_xyzwlhr() for box in boxes])
     centers = flat_boxes[:, 0:2]
     dims = flat_boxes[:, 3:5]
     angles = flat_boxes[:, 6]
@@ -421,8 +421,8 @@ def box_collision_test(boxes, qboxes):
         boxes (np.ndarray): Corners of current boxes.
         qboxes (np.ndarray): Boxes to be avoid colliding.
     """
-    boxes = np.array([box.to_xyzwhlr() for box in boxes], dtype=np.float32)
-    qboxes = np.array([box.to_xyzwhlr() for box in qboxes], dtype=np.float32)
+    boxes = np.array([box.to_xyzwlhr() for box in boxes], dtype=np.float32)
+    qboxes = np.array([box.to_xyzwlhr() for box in qboxes], dtype=np.float32)
 
     boxes = boxes[:, [0, 1, 3, 4, 6]]
     qboxes = qboxes[:, [0, 1, 3, 4, 6]]
@@ -431,7 +431,8 @@ def box_collision_test(boxes, qboxes):
 
     coll_mat[coll_mat != 0] = 1
 
-    return coll_mat.astype(np.bool)
+    #return coll_mat.astype(np.bool)
+    return coll_mat
 
 
 def sample_class(class_name, num, gt_boxes, db_boxes):
@@ -474,7 +475,7 @@ def remove_points_in_boxes(points, boxes):
     Returns:
         np.ndarray: Points with those in the boxes removed.
     """
-    flat_boxes = [box.to_xyzwhlr() for box in boxes]
+    flat_boxes = [box.to_xyzwlhr() for box in boxes]
     masks = points_in_box(points, flat_boxes)
     points = points[np.logical_not(masks.any(-1))]
 

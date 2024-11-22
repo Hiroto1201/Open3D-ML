@@ -146,7 +146,7 @@ class ObjdetAugmentation():
 
         filtered_boxes = []
         for box in data['bounding_boxes']:
-            if in_range_bev(bev_range, box.to_xyzwhlr()):
+            if in_range_bev(bev_range, box.to_xyzwlhr()):
                 filtered_boxes.append(box)
 
         return {

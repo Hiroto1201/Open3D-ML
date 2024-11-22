@@ -1,7 +1,6 @@
 import numpy as np
 from . import iou_bev, iou_3d
 
-
 def filter_data(data, labels, diffs=None):
     """Filters the data to fit the given labels and difficulties.
     Args:
@@ -72,7 +71,7 @@ def precision_3d(pred,
 
     Returns:
         A tuple with a list of detection quantities
-        (score, true pos., false. pos) for each box
+        (score, true pos., false pos.) for each box
         and a list of the false negatives.
     """
     sim_values = list(similar_classes.values())
@@ -148,6 +147,8 @@ def sample_thresholds(scores, gt_cnt, sample_cnt=41):
         Returns a list of equally spaced samples of the input scores.
     """
     scores = np.sort(scores)[::-1]
+    #if len(scores) < sample_cnt: #240226 appended by MM
+    #    return []
     current_recall = 0
     thresholds = []
     for i, score in enumerate(scores):
@@ -241,8 +242,10 @@ def mAP(pred,
             det = detection[i, j, np.argsort(-detection[i, j, :, 0])]
 
             #gt_cnt = np.sum(det[:,1]) + fns[i, j]
-            thresholds = sample_thresholds(det[np.where(det[:, 1] > 0)[0], 0],
-                                           gt_cnt[i, j], samples)
+            scores = det[np.where(det[:, 1] > 0)[0], 0]       #240226 appended by MM
+            print("mAP: class {} difficulty {} gt {} det {}"\
+                  .format(i, j, int(gt_cnt[i, j]), len(scores)))
+            thresholds = sample_thresholds(scores, gt_cnt[i, j], samples)
             if len(thresholds) == 0:
                 # No predictions met cutoff thresholds, skipping AP computation to avoid NaNs.
                 continue

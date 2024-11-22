@@ -1,0 +1,156 @@
+labels: 
+  0 : "noise"
+  1 : "animal"
+  2 : "human.pedestrian.adult"
+  3 : "human.pedestrian.child"
+  4 : "human.pedestrian.construction_worker"
+  5 : "human.pedestrian.personal_mobility"
+  6 : "human.pedestrian.police_officer"
+  7 : "human.pedestrian.stroller"
+  8 : "human.pedestrian.wheelchair"
+  9 : "movable_object.barrier"
+  10: "movable_object.debris"
+  11: "movable_object.pushable_pullable"
+  12: "movable_object.trafficcone"
+  13: "movable_object.bicycle_rack"
+  14: "vehicle.bicycle"
+  15: "vehicle.bus.bendy"
+  16: "vehicle.bus.rigid"
+  17: "vehicle.car"
+  18: "vehicle.construction"
+  19: "vehicle.ambulance"
+  20: "vehicle.emergency.police"
+  21: "vehicle.motorcycle"
+  22: "vehicle.trailer"
+  23: "vehicle.truck"
+  24: "flat.driveable_surface"
+  25: "flat.other"
+  26: "flat.sidewalk"
+  27: "flat.terrain"
+  28: "static.manmade"
+  29: "static.other"
+  30: "static.vegetation"
+  31: "vehicle.ego"
+color_map: # rgb
+  0 : [  0,   0,   0] # "noise", Black
+  1 : [ 70, 130, 180] # "animal", Steelblue
+  2 : [  0,   0, 230] # "human.pedestrian.adult", Blue
+  3 : [135, 206, 235] # "human.pedestrian.child", Skyblue
+  4 : [100, 149, 237] # "human.pedestrian.construction_worker", Cornflowerblue
+  5 : [219, 112, 147] # "human.pedestrian.personal_mobility", Palevioletred
+  6 : [  0,   0, 128] # "human.pedestrian.police_officer", Navy
+  7 : [240, 128, 128] # "human.pedestrian.stroller", Lightcoral
+  8 : [138,  43, 226] # "human.pedestrian.wheelchair", Blueviolet
+  9 : [112, 128, 144] # "movable_object.barrier", Slategrey
+  10: [210, 105,  30] # "movable_object.debris", Chocolate
+  11: [105, 105, 105] # "movable_object.pushable_pullable", Dimgrey
+  12: [ 47,  79,  79] # "movable_object.trafficcone", Darkslategrey
+  13: [188, 143, 143] # "movable_object.bicycle_rack", Rosybrown
+  14: [220,  20,  60] # "vehicle.bicycle", Crimson
+  15: [255, 127,  80] # "vehicle.bus.bendy", Coral
+  16: [255,  69,   0] # "vehicle.bus.rigid", Orangered
+  17: [255, 158,   0] # "vehicle.car", Orange
+  18: [233, 150,  70] # "vehicle.construction", Darksalmon
+  19: [255,  83,   0] # "vehicle.ambulance"
+  20: [255, 215,   0] # "vehicle.emergency.police", Gold
+  21: [255,  61,  99] # "vehicle.motorcycle", Red
+  22: [255, 140,   0] # "vehicle.trailer", Darkorange
+  23: [255,  99,  71] # "vehicle.truck", Tomato
+  24: [  0, 207, 191] # "flat.driveable_surface", nuTonomy Green
+  25: [175,   0,  75] # "flat.other"
+  26: [ 75,   0,  75] # "flat.sidewalk"
+  27: [112, 180,  60] # "flat.terrain"
+  28: [222, 184, 135] # "static.manmade", Burlywood
+  29: [255, 228, 196] # "static.other", Bisque
+  30: [  0, 175,   0] # "static.vegetation", Green
+  31: [255, 240, 245] # "vehicle.ego"
+content: # as a ratio with the total number of points
+  0 :  0.425 
+  1 :  0.000 
+  2 :  0.297 
+  3 :  0.002 
+  4 :  0.010 
+  5 :  0.024 
+  6 :  0.000 
+  7 :  0.000 
+  8 :  0.000 
+  9 :  0.364 
+  10:  0.000 
+  11:  0.005 
+  12:  0.039 
+  13:  0.023 
+  14:  0.010 
+  15:  0.279 
+  16:  0.207 
+  17:  3.575 
+  18:  0.215 
+  19:  0.000 
+  20:  0.000 
+  21:  0.046 
+  22:  0.090 
+  23:  2.136 
+  24: 29.016 
+  25:  1.071 
+  26:  5.325 
+  27:  4.966 
+  28: 14.741 
+  29:  0.119 
+  30: 11.160 
+  31: 25.857 
+# classes that are indistinguishable from single scan or inconsistent in
+# ground truth are mapped to their closest equivalent
+learning_map:
+  0 :  0 # "noise" mapped to "unlabeled"
+  1 :  0 # "animal" mapped to "unlabeled"
+  2 :  1 # "human.pedestrian.adult" mapped to "pedestrian"
+  3 :  1 # "human.pedestrian.child" mapped to "pedestrian"
+  4 :  1 # "human.pedestrian.construction_worker" mapped to "pedestrian"
+  5 :  1 # "human.pedestrian.personal_mobility" mapped to "pedestrian"
+  6 :  1 # "human.pedestrian.police_officer" mapped to "pedestrian"
+  7 :  1 # "human.pedestrian.stroller" mapped to "pedestrian"
+  8 :  1 # "human.pedestrian.wheelchair" mapped to "pedestrian"
+  9 :  0 # "movable_object.barrier" mapped to "movable_object"
+  10:  0 # "movable_object.debris" mapped to "movable_object"
+  11:  0 # "movable_object.pushable_pullable" mapped to "movable_object"
+  12:  0 # "movable_object.trafficcone" mapped to "movable_object"
+  13:  0 # "movable_object.bicycle_rack" mapped to "movable_object"
+  14:  2 # "vehicle.bicycle" mapped to "bike"
+  15:  4 # "vehicle.bus.bendy" mapped to "other_vehicle"
+  16:  4 # "vehicle.bus.rigid" mapped to "bus"
+  17:  3 # "vehicle.car" mapped to "car"
+  18:  4 # "vehicle.construction" mapped to "other_vehicle"
+  19:  4 # "vehicle.ambulance" mapped to "other_vehicle"
+  20:  4 # "vehicle.emergency.police" mapped to "other_vehicle"
+  21:  2 # "vehicle.motorcycle" mapped to "bike"
+  22:  4 # "vehicle.trailer" mapped to "other_vehicle"
+  23:  4 # "vehicle.truck" mapped to "other_vehicle"
+  24:  5 # "flat.driveable_surface" mapped to "driveable_surface"
+  25:  0 # "flat.other" mapped to "other_flat"
+  26:  6 # "flat.sidewalk" mapped to "sidewalk"
+  27:  7 # "flat.terrain" mappwd to "other_flat"
+  28:  8 # "static.manmade" mapped to "manmade"
+  29:  0 # "static.other" mapped to "unlabeled"
+  30:  9 # "static.vegetation" mapped to "vegetation"
+  31:  0 # "vehicle.ego" mapped to "unlabeled"
+learning_map_inv: # inverse of previous map
+  0 :  0 # "unlabeled"
+  1 :  2 # "pedestrian"
+  2 : 14 # "bike"
+  3 : 17 # "car"
+  4 : 15 # "other_vehicle"
+  5 : 24 # "driveable_surface"
+  6 : 26 # "sidewalk"
+  7 : 27 # "terrain"
+  8 : 28 # "manmade"
+  9 : 30 # "vegetation"
+learning_ignore: # Ignore classes
+  0 : True  # "unlabeled"
+  1 : False # "pedestrian"
+  2 : False # "bike"
+  3 : False # "car"
+  4 : False # "other_vehicle"
+  5 : False # "driveable_surface"
+  6 : False # "sidewalk"
+  7 : False # "terrain"
+  8 : False # "manmade"
+  9 : False # "vegetation"

@@ -1,8 +1,8 @@
 import torch
-import torch.nn as nn
+from torch import nn
+from torch.nn import functional as F
 
 from ....datasets.utils import DataProcessing
-
 
 def filter_valid_label(scores, labels, num_classes, ignored_label_inds, device):
     """Loss functions for semantic segmentation."""
@@ -36,7 +36,6 @@ def filter_valid_label(scores, labels, num_classes, ignored_label_inds, device):
 
     return valid_scores, valid_labels
 
-
 class SemSegLoss(object):
     """Loss functions for semantic segmentation."""
 
@@ -48,7 +47,19 @@ class SemSegLoss(object):
             class_wt = DataProcessing.get_class_weights(
                 dataset.cfg.class_weights)
             weights = torch.tensor(class_wt, dtype=torch.float, device=device)
+            weights = torch.squeeze(weights)
 
             self.weighted_CrossEntropyLoss = nn.CrossEntropyLoss(weight=weights)
         else:
             self.weighted_CrossEntropyLoss = nn.CrossEntropyLoss()
+
+class WeightedCrossEntropyLoss(nn.Module):
+    """Loss functions for semantic segmentation."""
+
+    def __init__(self, loss_weight=1.0, log_weight=0.0):
+        super(WeightedCrossEntropyLoss, self).__init__()
+        self.loss_weight = float(loss_weight)
+        self.log_weight = float(log_weight)
+
+    def forward(self, pred, target, ignore_index=None, weight=None):
+        return F.cross_entropy(pred, target, ignore_index=ignore_index, weight=weight)

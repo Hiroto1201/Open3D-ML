@@ -552,6 +552,153 @@ class ObjectDetectBatch:
 
         return [b for b in batches if len(b.point)]  # filter empty batch
 
+class ObjectDetectBatch_BEV:
+
+    def __init__(self, batches):
+        """Initialize.
+
+        Args:
+            batches: A batch of data
+
+        Returns:
+            class: The corresponding class.
+        """
+        self.calib = []
+        self.point = []
+        self.bbox = []
+        self.point_t = []
+        self.cls_t = []
+        self.reg_t = []
+
+        for batch in batches:
+            data = batch['data']
+            self.calib.append(data.get('calib'))
+            self.point.append(data.get('point'))
+            self.bbox.append(data.get('bbox') if 'bbox' in data else None)
+            self.point_t.append(torch.tensor(data['point_t'], dtype=torch.float32))
+            self.cls_t.append(
+                torch.tensor(data['cls_t'], dtype=torch.int64)
+                if 'cls_t' in data else None)
+            self.reg_t.append(
+                torch.tensor(data['reg_t'], dtype=torch.float32)
+                if 'reg_t' in data else None)
+
+    def pin_memory(self):
+        for i in range(len(self.point_t)):
+            self.point_t[i] = self.point_t[i].pin_memory()
+            if self.cls_t[i] is not None:
+                self.cls_t[i] = self.cls_t[i].pin_memory()
+            if self.reg_t[i] is not None:
+                self.reg_t[i] = self.reg_t[i].pin_memory()
+
+        return self
+
+    def to(self, device):
+        for i in range(len(self.point)):
+            self.point_t[i] = self.point_t[i].to(device)
+            if self.cls_t[i] is not None:
+                self.cls_t[i] = self.cls_t[i].to(device)
+            if self.reg_t[i] is not None:
+                self.reg_t[i] = self.reg_t[i].to(device)
+
+    @staticmethod
+    def scatter(batch, num_gpu):
+        batch_size = len(batch.point)
+
+        new_batch_size = math.ceil(batch_size / num_gpu)
+        batches = [ObjectDetectBatch([]) for _ in range(num_gpu)]
+        for i in range(num_gpu):
+            start = new_batch_size * i
+            end = min(new_batch_size * (i + 1), batch_size)
+            batches[i].name = batch.name[start:end]
+            batches[i].calib = batch.calib[start:end]
+            batches[i].point = batch.point[start:end]
+            batches[i].bbox = batch.bbox[start:end]
+            batches[i].point_t = batch.point_t[start:end]
+            batches[i].cls_t = batch.cls_t[start:end]
+            batches[i].reg_t = batch.reg_t[start:end]
+
+        return [b for b in batches if len(b.point)]  # filter empty batch
+
+class MultitaskBatch_BEV:
+
+    def __init__(self, batches):
+        """Initialize.
+
+        Args:
+            batches: A batch of data
+
+        Returns:
+            class: The corresponding class.
+        """
+        self.calib = []
+        self.point = []
+        self.label = []
+        self.bbox = []
+        self.point_t = []
+        self.label_t = []
+        self.cls_t = []
+        self.reg_t = []
+
+        for batch in batches:
+            data = batch['data']
+            self.calib.append(data.get('calib'))
+            self.point.append(data.get('point'))
+            self.label.append(data.get('label') if 'label' in data else None)
+            self.bbox.append(data.get('bbox') if 'bbox' in data else None)
+            self.point_t.append(torch.tensor(data['point_t'], dtype=torch.float32))
+            self.label_t.append(
+                torch.tensor(data['label_t'], dtype=torch.int64)
+                if 'label_t' in data else None)
+            self.cls_t.append(
+                torch.tensor(data['cls_t'], dtype=torch.int64)
+                if 'cls_t' in data else None)
+            self.reg_t.append(
+                torch.tensor(data['reg_t'], dtype=torch.float32)
+                if 'reg_t' in data else None)
+
+    def pin_memory(self):
+        for i in range(len(self.point_t)):
+            self.point_t[i] = self.point_t[i].pin_memory()
+            if self.label_t[i] is not None:
+                self.label_t[i] = self.label_t[i].pin_memory()
+            if self.cls_t[i] is not None:
+                self.cls_t[i] = self.cls_t[i].pin_memory()
+            if self.reg_t[i] is not None:
+                self.reg_t[i] = self.reg_t[i].pin_memory()
+
+        return self
+
+    def to(self, device):
+        for i in range(len(self.point)):
+            self.point_t[i] = self.point_t[i].to(device)
+            if self.label_t[i] is not None:
+                self.label_t[i] = self.label_t[i].to(device)
+            if self.cls_t[i] is not None:
+                self.cls_t[i] = self.cls_t[i].to(device)
+            if self.reg_t[i] is not None:
+                self.reg_t[i] = self.reg_t[i].to(device)
+
+    @staticmethod
+    def scatter(batch, num_gpu):
+        batch_size = len(batch.point)
+
+        new_batch_size = math.ceil(batch_size / num_gpu)
+        batches = [ObjectDetectBatch([]) for _ in range(num_gpu)]
+        for i in range(num_gpu):
+            start = new_batch_size * i
+            end = min(new_batch_size * (i + 1), batch_size)
+            batches[i].name = batch.name[start:end]
+            batches[i].calib = batch.calib[start:end]
+            batches[i].point = batch.point[start:end]
+            batches[i].label = batch.label[start:end]
+            batches[i].bbox = batch.bbox[start:end]
+            batches[i].point_t = batch.point_t[start:end]
+            batches[i].label_t = batch.label_t[start:end]
+            batches[i].cls_t = batch.cls_t[start:end]
+            batches[i].reg_t = batch.reg_t[start:end]
+
+        return [b for b in batches if len(b.point)]  # filter empty batch
 
 class ConcatBatcher(object):
     """ConcatBatcher for KPConv."""
@@ -589,9 +736,14 @@ class ConcatBatcher(object):
         elif self.model == "PointTransformer":
             return {'data': PointTransformerBatch(batches), 'attr': {}}
 
-        elif self.model == "PointPillars" or self.model == "PointRCNN":
-            batching_result = ObjectDetectBatch(batches)
-            return batching_result
+        elif self.model == "PointRCNN":
+            return ObjectDetectBatch(batches)
+
+        elif self.model == "PointPillars" or self.model == "PaintedPillars":
+            return ObjectDetectBatch_BEV(batches)
+
+        elif self.model == "mtPointPillars":
+            return MultitaskBatch_BEV(batches)
 
         else:
             raise Exception(

@@ -39,7 +39,6 @@ from ..modules.losses.cross_entropy import CrossEntropyLoss
 from ...datasets.utils import BEVBox3D
 from ...datasets.augment import ObjdetAugmentation
 
-
 class PointPillars(BaseModel):
     """Object detection model. Based on the PointPillars architecture
     https://github.com/nutonomy/second.pytorch.
@@ -62,7 +61,8 @@ class PointPillars(BaseModel):
                  name="PointPillars",
                  device="cuda",
                  point_cloud_range=[0, -40.0, -3, 70.0, 40.0, 1],
-                 classes=['car'],
+                 classes=['pedestrian', 'bike', 'car', 'other_vehicle'],
+                 num_classes=4,
                  voxelize={},
                  voxel_encoder={},
                  scatter={},
@@ -76,12 +76,23 @@ class PointPillars(BaseModel):
                          point_cloud_range=point_cloud_range,
                          device=device,
                          **kwargs)
-        self.point_cloud_range = point_cloud_range
         self.classes = classes
+        self.num_classes = num_classes
         self.name2lbl = {n: i for i, n in enumerate(classes)}
         self.lbl2name = {i: n for i, n in enumerate(classes)}
 
-        self.augmenter = ObjdetAugmentation(self.cfg.augment, seed=self.rng)
+        self.min_x = point_cloud_range[0]
+        self.max_x = point_cloud_range[3]
+        self.min_y = point_cloud_range[1]
+        self.max_y = point_cloud_range[4]
+        self.point_cloud_range = point_cloud_range
+        self.voxel_size = voxelize.voxel_size
+        self.grid_x = int((self.max_x - self.min_x) / self.voxel_size[0])
+        self.grid_y = int((self.max_y - self.min_y) / self.voxel_size[1])
+        self.range_x = self.max_x - self.min_x
+        self.range_y = self.max_y - self.min_y
+
+        #self.augmenter = ObjdetAugmentation(self.cfg.augment, seed=self.rng)
         self.voxel_layer = PointPillarsVoxelization(
             point_cloud_range=point_cloud_range, **voxelize)
         self.voxel_encoder = PillarFeatureNet(
@@ -90,24 +101,14 @@ class PointPillars(BaseModel):
 
         self.backbone = SECOND(**backbone)
         self.neck = SECONDFPN(**neck)
-        self.bbox_head = Anchor3DHead(num_classes=len(self.classes), **head)
+        self.head_det = Anchor3DHead(num_classes=self.num_classes, **head)
 
-        self.loss_cls = FocalLoss(**loss.get("focal", {}))
-        self.loss_bbox = SmoothL1Loss(**loss.get("smooth_l1", {}))
-        self.loss_dir = CrossEntropyLoss(**loss.get("cross_entropy", {}))
+        self.loss_cls = FocalLoss(**loss.get("cls_focal", {}))
+        self.loss_reg = SmoothL1Loss(**loss.get("reg_smooth_l1", {}))
+        self.loss_dir = CrossEntropyLoss(**loss.get("dir_cross_entropy", {}))
 
         self.device = device
         self.to(device)
-
-    def extract_feats(self, points):
-        """Extract features from points."""
-        voxels, num_points, coors = self.voxelize(points)
-        voxel_features = self.voxel_encoder(voxels, num_points, coors)
-        batch_size = coors[-1, 0].item() + 1
-        x = self.middle_encoder(voxel_features, coors, batch_size)
-        x = self.backbone(x)
-        x = self.neck(x)
-        return x
 
     @torch.no_grad()
     def voxelize(self, points):
@@ -127,170 +128,151 @@ class PointPillars(BaseModel):
         coors_batch = torch.cat(coors_batch, dim=0)
         return voxels, num_points, coors_batch
 
+    def extract_feats(self, points):
+        """Extract features from points."""
+        voxels, num_points, coors = self.voxelize(points)
+        voxel_features = self.voxel_encoder(voxels, num_points, coors)
+        batch_size = coors[-1, 0].item() + 1
+        x = self.middle_encoder(voxel_features, coors, batch_size)
+        x = self.backbone(x)
+        x = self.neck(x)
+        return x
+
     def forward(self, inputs):
-        inputs = inputs.point
+        inputs = inputs.point_t
         x = self.extract_feats(inputs)
-        outs = self.bbox_head(x)
-        return outs
+        det = self.head_det(x)
+        return det
 
-    def get_optimizer(self, cfg):
-        optimizer = torch.optim.AdamW(self.parameters(), **cfg)
-        return optimizer, None
+    def get_optimizer(self, cfg_pipeline):
+        optimizer = torch.optim.Adam(self.parameters(),
+                                     **cfg_pipeline.optimizer)
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, **cfg_pipeline.scheduler)
+        return optimizer, scheduler
 
-    def get_loss(self, results, inputs):
-        scores, bboxes, dirs = results
-        gt_labels = inputs.labels
-        gt_bboxes = inputs.bboxes
+    def get_loss(self, result, input):
+        score, bbox, dir = result
+        gt_cls = input.cls_t
+        gt_reg = input.reg_t
 
         # generate and filter bboxes
-        target_bboxes, target_idx, pos_idx, neg_idx = self.bbox_head.assign_bboxes(
-            bboxes, gt_bboxes)
-
+        target_bbox, target_idx, pos_idx, neg_idx = self.head_det.assign_bboxes(bbox, gt_reg)
         avg_factor = pos_idx.size(0)
 
         # classification loss
-        scores = scores.permute(
-            (0, 2, 3, 1)).reshape(-1, self.bbox_head.num_classes)
-        target_labels = torch.full((scores.size(0),),
-                                   self.bbox_head.num_classes,
-                                   device=scores.device,
-                                   dtype=gt_labels[0].dtype)
-        target_labels[pos_idx] = torch.cat(gt_labels, axis=0)[target_idx]
+        score = score.permute((0, 2, 3, 1)).reshape(-1, self.num_classes)
+        target_cls = torch.full((score.size(0),),
+                                   self.num_classes,
+                                   device=score.device,
+                                   dtype=gt_cls[0].dtype)
+        target_cls[pos_idx] = torch.cat(gt_cls, axis=0)[target_idx]
 
-        loss_cls = self.loss_cls(scores[torch.cat([pos_idx, neg_idx], axis=0)],
-                                 target_labels[torch.cat([pos_idx, neg_idx],
-                                                         axis=0)],
-                                 avg_factor=avg_factor)
+        all_idx = torch.cat([pos_idx, neg_idx], axis=0)
+        loss_cls = self.loss_cls(score[all_idx], target_cls[all_idx], avg_factor=avg_factor)
 
         # remove invalid labels
-        cond = (target_labels[pos_idx] >= 0) & (target_labels[pos_idx] <
-                                                self.bbox_head.num_classes)
+        cond = (target_cls[pos_idx] >= 0) & (target_cls[pos_idx] < self.num_classes)
         pos_idx = pos_idx[cond]
         target_idx = target_idx[cond]
-        target_bboxes = target_bboxes[cond]
+        target_bbox = target_bbox[cond]
 
-        bboxes = bboxes.permute(
-            (0, 2, 3, 1)).reshape(-1, self.bbox_head.box_code_size)[pos_idx]
-        dirs = dirs.permute((0, 2, 3, 1)).reshape(-1, 2)[pos_idx]
+        bbox = bbox.permute(
+            (0, 2, 3, 1)).reshape(-1, self.head_det.box_code_size)[pos_idx]
+        dir = dir.permute((0, 2, 3, 1)).reshape(-1, 2)[pos_idx]
 
         if len(pos_idx) > 0:
             # direction classification loss
             # to discrete bins
-            target_dirs = torch.cat(gt_bboxes, axis=0)[target_idx][:, -1]
-            target_dirs = limit_period(target_dirs, 0, 2 * np.pi)
-            target_dirs = (target_dirs / np.pi).long() % 2
+            target_dir = torch.cat(gt_reg, axis=0)[target_idx][:, -1]
+            target_dir = limit_period(target_dir, 0, 2 * np.pi)
+            target_dir = (target_dir / np.pi).long() % 2
 
-            loss_dir = self.loss_dir(dirs, target_dirs, avg_factor=avg_factor)
+            loss_dir = self.loss_dir(dir, target_dir, avg_factor=avg_factor)
 
             # bbox loss
             # sinus difference transformation
-            r0 = torch.sin(bboxes[:, -1:]) * torch.cos(target_bboxes[:, -1:])
-            r1 = torch.cos(bboxes[:, -1:]) * torch.sin(target_bboxes[:, -1:])
+            r0 = torch.sin(bbox[:, -1:]) * torch.cos(target_bbox[:, -1:])
+            r1 = torch.cos(bbox[:, -1:]) * torch.sin(target_bbox[:, -1:])
 
-            bboxes = torch.cat([bboxes[:, :-1], r0], axis=-1)
-            target_bboxes = torch.cat([target_bboxes[:, :-1], r1], axis=-1)
+            bbox = torch.cat([bbox[:, :-1], r0], axis=-1)
+            target_bbox = torch.cat([target_bbox[:, :-1], r1], axis=-1)
 
-            loss_bbox = self.loss_bbox(bboxes,
-                                       target_bboxes,
-                                       avg_factor=avg_factor)
+            loss_reg = self.loss_reg(bbox, target_bbox, avg_factor=avg_factor)
         else:
             loss_cls = loss_cls.sum()
-            loss_bbox = bboxes.sum()
-            loss_dir = dirs.sum()
+            loss_reg = bbox.sum()
+            loss_dir = dir.sum()
 
         return {
             'loss_cls': loss_cls,
-            'loss_bbox': loss_bbox,
-            'loss_dir': loss_dir
+            'loss_reg': loss_reg,
+            'loss_dir': loss_dir,
         }
 
-    def preprocess(self, data, attr):
-        # If num_workers > 0, use new RNG with unique seed for each thread.
-        # Else, use default RNG.
-        if torch.utils.data.get_worker_info():
-            seedseq = np.random.SeedSequence(
-                torch.utils.data.get_worker_info().seed +
-                torch.utils.data.get_worker_info().id)
-            rng = np.random.default_rng(seedseq.spawn(1)[0])
-        else:
-            rng = self.rng
+    @staticmethod
+    def in_range_bev(box_range, box):
+        return (box[0] > box_range[0]) & (box[1] > box_range[1]) & (
+            box[0] < box_range[2]) & (box[1] < box_range[3])
 
-        points = np.array(data['point'][:, 0:4], dtype=np.float32)
+    def preprocess(self, data, attr):
+        point = np.array(data['point'][:, 0:self.voxel_encoder.in_channels], dtype=np.float32)
 
         min_val = np.array(self.point_cloud_range[:3])
         max_val = np.array(self.point_cloud_range[3:])
 
-        points = points[np.where(
-            np.all(np.logical_and(points[:, :3] >= min_val,
-                                  points[:, :3] < max_val),
-                   axis=-1))]
-
-        data['point'] = points
-
-        #Augment data
-        if attr['split'] not in ['test', 'testing', 'val', 'validation']:
-            data = self.augmenter.augment(data, attr, seed=rng)
-
-        new_data = {'point': data['point'], 'calib': data['calib']}
+        mask = np.where(np.all(np.logical_and(point[:, :3] >= min_val,
+                                              point[:, :3] < max_val),
+                               axis=-1))
+        point = point[mask]
+        new_data = {'calib': data['calib'], 'point': point, 'point_t': point}
 
         if attr['split'] not in ['test', 'testing']:
-            new_data['bbox_objs'] = data['bounding_boxes']
-
-        if 'full_point' in data:
-            points = np.array(data['full_point'][:, 0:4], dtype=np.float32)
-
-            min_val = np.array(self.point_cloud_range[:3])
-            max_val = np.array(self.point_cloud_range[3:])
-
-            points = points[np.where(
-                np.all(np.logical_and(points[:, :3] >= min_val,
-                                      points[:, :3] < max_val),
-                       axis=-1))]
-
-            new_data['full_point'] = points
+            """Filter Objects in the given range."""
+            pcd_range = np.array(self.point_cloud_range)
+            bev_range = pcd_range[[0, 1, 3, 4]]
+            filtered_boxes = []
+            for box in data['bounding_boxes']:
+                if self.in_range_bev(bev_range, box.to_xyzwlhr()):
+                    filtered_boxes.append(box)
+            new_data['bbox'] = filtered_boxes
+            new_data['cls_t'] = np.array([
+                self.name2lbl.get(bb.label_class, len(self.classes))
+                for bb in filtered_boxes
+            ], dtype=np.int64)
+            new_data['reg_t'] = np.array(
+                [bb.to_xyzwlhr() for bb in filtered_boxes], dtype=np.float32)
 
         return new_data
 
     def transform(self, data, attr):
-        t_data = {'point': data['point'], 'calib': data['calib']}
+        return data
 
-        if attr['split'] not in ['test', 'testing']:
-            t_data['bbox_objs'] = data['bbox_objs']
-            t_data['labels'] = np.array([
-                self.name2lbl.get(bb.label_class, len(self.classes))
-                for bb in data['bbox_objs']
-            ],
-                                        dtype=np.int64)
-            t_data['bboxes'] = np.array(
-                [bb.to_xyzwhlr() for bb in data['bbox_objs']], dtype=np.float32)
+    def inference_end(self, result, input):
+        bbox_b, score_b, label_b = self.head_det.get_bboxes(*result)
 
-        return t_data
-
-    def inference_end(self, results, inputs):
-        bboxes_b, scores_b, labels_b = self.bbox_head.get_bboxes(*results)
-
-        inference_result = []
-        for _calib, _bboxes, _scores, _labels in zip(inputs.calib, bboxes_b,
-                                                     scores_b, labels_b):
-            bboxes = _bboxes.cpu().detach().numpy()
-            scores = _scores.cpu().detach().numpy()
-            labels = _labels.cpu().detach().numpy()
-            inference_result.append([])
+        pred = []
+        for _calib, _bbox, _score, _label in zip(input.calib, bbox_b,
+                                                     score_b, label_b):
+            bbox = _bbox.cpu().detach().numpy()
+            score = _score.cpu().detach().numpy()
+            label = _label.cpu().detach().numpy()
+            pred.append([])
 
             world_cam, cam_img = None, None
             if _calib is not None:
                 world_cam = _calib.get('world_cam', None)
                 cam_img = _calib.get('cam_img', None)
 
-            for bbox, score, label in zip(bboxes, scores, labels):
-                dim = bbox[[3, 5, 4]]
-                pos = bbox[:3] + [0, 0, dim[1] / 2]
-                yaw = bbox[-1]
-                name = self.lbl2name.get(label, "ignore")
-                inference_result[-1].append(
-                    BEVBox3D(pos, dim, yaw, name, score, world_cam, cam_img))
+            for bb, sc, la in zip(bbox, score, label):
+                dim = bb[[3, 5, 4]]
+                pos = bb[:3] + [0, 0, dim[1] / 2]
+                yaw = bb[-1]
+                name = self.lbl2name.get(la, "ignore")
+                pred[-1].append(
+                    BEVBox3D(pos, dim, yaw, name, sc, world_cam, cam_img))
 
-        return inference_result
+        return pred
 
 
 MODEL._register_module(PointPillars, 'torch')
@@ -838,7 +820,8 @@ class Anchor3DHead(nn.Module):
         bbox_pred = self.conv_reg(x)
         dir_cls_preds = None
         dir_cls_preds = self.conv_dir_cls(x)
-        return cls_score, bbox_pred, dir_cls_preds
+
+        return [cls_score, bbox_pred, dir_cls_preds]
 
     def assign_bboxes(self, pred_bboxes, target_bboxes):
         """Assigns target bboxes to given anchors.

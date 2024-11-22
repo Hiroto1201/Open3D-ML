@@ -100,7 +100,7 @@ class BEVBox3D(BoundingBox3D):
         corners3d = corners3d + self.to_camera()[:3]
         return corners3d
 
-    def to_xyzwhlr(self):
+    def to_xyzwlhr(self):
         """Returns box in the common 7-sized vector representation: (x, y, z, w,
         l, h, a), where (x, y, z) is the bottom center of the box, (w, l, h) is
         the width, length and height of the box a is the yaw angle.
@@ -134,7 +134,7 @@ class BEVBox3D(BoundingBox3D):
             transformed box: (7,)
         """
         if self.world_cam is None:
-            return self.to_xyzwhlr()[[1, 2, 0, 4, 5, 3, 6]]
+            return self.to_xyzwlhr()[[1, 2, 0, 4, 5, 3, 6]]
 
         bbox = np.zeros((7,))
         # In camera space, we define center as center of the bottom face of bounding box.

@@ -208,28 +208,6 @@ class PointRCNN(BaseModel):
         return filtered
 
     def preprocess(self, data, attr):
-        # If num_workers > 0, use new RNG with unique seed for each thread.
-        # Else, use default RNG.
-        if torch.utils.data.get_worker_info():
-            seedseq = np.random.SeedSequence(
-                torch.utils.data.get_worker_info().seed +
-                torch.utils.data.get_worker_info().id)
-            rng = np.random.default_rng(seedseq.spawn(1)[0])
-        else:
-            rng = self.rng
-
-        if attr['split'] in ['train', 'training']:
-            data = self.augmenter.augment(data, attr, seed=rng)
-
-        data['bounding_boxes'] = self.filter_objects(data['bounding_boxes'])
-
-        # remove intensity
-        points = np.array(data['point'][..., :3], dtype=np.float32)
-        calib = data['calib']
-
-        # transform in cam space
-        points = DataProcessing.world2cam(points, calib['world_cam'])
-
         new_data = {'point': points, 'calib': calib}
 
         # bounding_boxes are objects of type BEVBox3D. It is renamed to
@@ -308,19 +286,29 @@ class PointRCNN(BaseModel):
         return cls_label, reg_label
 
     def transform(self, data, attr):
-        points = data['point']
+        # If num_workers > 0, use new RNG with unique seed for each thread.
+        # Else, use default RNG.
+        if torch.utils.data.get_worker_info():
+            seedseq = np.random.SeedSequence(
+                torch.utils.data.get_worker_info().seed +
+                torch.utils.data.get_worker_info().id)
+            rng = np.random.default_rng(seedseq.spawn(1)[0])
+        else:
+            rng = self.rng
+
+        if attr['split'] in ['train', 'training']:
+            data = self.augmenter.augment(data, attr, seed=rng)
+
+        data['bbox_objs'] = self.filter_objects(data['bbox_objs'])
+
+        # remove intensity
+        points = np.array(data['point'][..., :3], dtype=np.float32)
+        calib = data['calib']
+
+        # transform in cam space
+        points = DataProcessing.world2cam(points, calib['world_cam'])
 
         if attr['split'] not in ['test', 'testing']:  #, 'val', 'validation']:
-            # If num_workers > 0, use new RNG with unique seed for each thread.
-            # Else, use default RNG.
-            if torch.utils.data.get_worker_info():
-                seedseq = np.random.SeedSequence(
-                    torch.utils.data.get_worker_info().seed +
-                    torch.utils.data.get_worker_info().id)
-                rng = np.random.default_rng(seedseq.spawn(1)[0])
-            else:
-                rng = self.rng
-
             if self.npoints < len(points):
                 pts_depth = points[:, 2]
                 pts_near_flag = pts_depth < 40.0
@@ -360,7 +348,7 @@ class PointRCNN(BaseModel):
                 bboxes = np.stack([bb.to_camera() for bb in data['bbox_objs']
                                   ])  # Camera frame.
                 bboxes_world = np.stack(
-                    [bb.to_xyzwhlr() for bb in data['bbox_objs']])
+                    [bb.to_xyzwlhr() for bb in data['bbox_objs']])
 
             if self.mode == "RPN":
                 labels, bboxes = PointRCNN.generate_rpn_training_labels(

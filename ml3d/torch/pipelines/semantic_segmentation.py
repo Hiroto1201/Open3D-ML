@@ -1,4 +1,5 @@
 import logging
+import re
 from os.path import exists, join
 from pathlib import Path
 from datetime import datetime
@@ -38,7 +39,7 @@ class SemanticSegmentation(BasePipeline):
             from torch.utils.tensorboard import SummaryWriter
             from ..dataloaders import get_sampler, TorchDataloader, DefaultBatcher, ConcatBatcher
 
-            Mydataset = TorchDataloader(dataset=dataset.get_split('training')),
+            Mydataset = TorchDataloader(dataset=dataset.get_split('train')),
             MyModel = SemanticSegmentation(self,model,dataset=Mydataset, name='SemanticSegmentation',
             name='MySemanticSegmentation',
             batch_size=4,
@@ -167,16 +168,16 @@ class SemanticSegmentation(BasePipeline):
             'predict_scores': self.ori_test_probs.pop()
         }
 
-        metric = SemSegMetric()
-
-        valid_scores, valid_labels = filter_valid_label(
-            torch.tensor(inference_result['predict_scores']),
-            torch.tensor(data['label']), model.cfg.num_classes,
-            model.cfg.ignored_label_inds, device)
-
-        metric.update(valid_scores, valid_labels)
-        log.info(f"Accuracy : {metric.acc()}")
-        log.info(f"IoU : {metric.iou()}")
+        #metric = SemSegMetric()
+        #
+        #valid_scores, valid_labels = filter_valid_label(
+        #    torch.tensor(inference_result['predict_scores']),
+        #    torch.tensor(data['label']), model.cfg.num_classes,
+        #    model.cfg.ignored_label_inds, device)
+        #
+        #metric.update(valid_scores, valid_labels)
+        #log.info(f"Accuracy : {metric.acc()}")
+        #log.info(f"IoU : {metric.iou()}")
 
         return inference_result
 
@@ -270,10 +271,10 @@ class SemanticSegmentation(BasePipeline):
         if self.curr_cloud_id != sampler.cloud_id:
             self.curr_cloud_id = sampler.cloud_id
             num_points = sampler.possibilities[sampler.cloud_id].shape[0]
-            self.pbar = tqdm(total=num_points,
-                             desc="{} {}/{}".format(split, self.curr_cloud_id,
-                                                    len(sampler.dataset)))
-            self.pbar_update = 0
+            #self.pbar = tqdm(total=num_points,
+            #                 desc="{} {}/{}".format(split, self.curr_cloud_id,
+            #                                        len(sampler.dataset)))
+            #self.pbar_update = 0
             self.test_probs.append(
                 np.zeros(shape=[num_points, self.model.cfg.num_classes],
                          dtype=np.float16))
@@ -282,11 +283,11 @@ class SemanticSegmentation(BasePipeline):
             self.complete_infer = False
 
         this_possiblility = sampler.possibilities[sampler.cloud_id]
-        self.pbar.update(
-            this_possiblility[this_possiblility > end_threshold].shape[0] -
-            self.pbar_update)
-        self.pbar_update = this_possiblility[
-            this_possiblility > end_threshold].shape[0]
+        #self.pbar.update(
+        #    this_possiblility[this_possiblility > end_threshold].shape[0] -
+        #    self.pbar_update)
+        #self.pbar_update = this_possiblility[
+        #    this_possiblility > end_threshold].shape[0]
         self.test_probs[self.curr_cloud_id], self.test_labels[
             self.curr_cloud_id] = self.model.update_probs(
                 inputs, results, self.test_probs[self.curr_cloud_id],
@@ -308,6 +309,87 @@ class SemanticSegmentation(BasePipeline):
             self.ori_test_labels.append(
                 self.test_labels[self.curr_cloud_id][proj_inds])
             self.complete_infer = True
+
+    @staticmethod
+    def worker_init_fn(x):
+        return np.random.seed(
+                   x + np.uint32(torch.utils.data.get_worker_info().seed))
+
+    def run_valid(self):
+        torch.manual_seed(self.rng.integers(np.iinfo(
+            np.int32).max))  # Random reproducible seed for torch
+        model = self.model
+        device = self.device
+        model.device = device
+        dataset = self.dataset
+
+        cfg = self.cfg
+        model.to(device)
+
+        log.info("DEVICE : {}".format(device))
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+
+        log_file_path = join(cfg.logs_dir, 'log_valid_' + timestamp + '.txt')
+        log.info("Logging in file : {}".format(log_file_path))
+        log.addHandler(logging.FileHandler(log_file_path))
+
+        Loss = SemSegLoss(self, model, dataset, device)
+        self.metric_val = SemSegMetric()
+
+        self.batcher = self.get_batcher(device)
+
+        valid_dataset = dataset.get_split('val')
+        valid_sampler = valid_dataset.sampler
+        valid_split = TorchDataloader(dataset=valid_dataset,
+                                      preprocess=model.preprocess,
+                                      transform=model.transform,
+                                      sampler=valid_sampler,
+                                      use_cache=dataset.cfg.use_cache,
+                                      steps_per_epoch=dataset.cfg.get(
+                                          'steps_per_epoch_valid', None))
+
+        valid_loader = DataLoader(
+            valid_split,
+            batch_size=cfg.val_batch_size,
+            sampler=get_sampler(valid_sampler),
+            num_workers=cfg.get('num_workers', 2),
+            pin_memory=cfg.get('pin_memory', True),
+            collate_fn=self.batcher.collate_fn,
+            worker_init_fn=self.worker_init_fn
+        )
+
+        self.optimizer, self.scheduler = model.get_optimizer(cfg)
+
+        is_resume = model.cfg.get('is_resume', True)
+        self.load_ckpt(model.cfg.ckpt_path, is_resume=is_resume)
+
+        # --------------------- validation
+        model.eval()
+        self.valid_losses = []
+        model.trans_point_sampler = valid_sampler.get_point_sampler()
+
+        with torch.no_grad():
+            for step, inputs in enumerate(
+                    tqdm(valid_loader, desc='validation')):
+                if hasattr(inputs['data'], 'to'):
+                    inputs['data'].to(device)
+
+                results = model(inputs['data'])
+                loss, gt_labels, predict_scores = model.get_loss(
+                    Loss, results, inputs, device)
+
+                if predict_scores.size()[-1] == 0:
+                    continue
+
+                self.metric_val.update(predict_scores, gt_labels)
+
+                self.valid_losses.append(loss.cpu().item())
+
+        #log.info( f"Confusion Matrix : {self.metric_val.confusion_matrix}")
+        log.info(f"Acc: {self.metric_val.acc()}")
+        log.info(f"IoU: {self.metric_val.iou()}")
+        #log.info(f"Mean Acc: {self.metric_val.acc()[-1]}")
+        #log.info(f"Mean IoU: {self.metric_val.iou()[-1]}")
 
     def run_train(self):
         torch.manual_seed(self.rng.integers(np.iinfo(
@@ -350,11 +432,10 @@ class SemanticSegmentation(BasePipeline):
             num_workers=cfg.get('num_workers', 2),
             pin_memory=cfg.get('pin_memory', True),
             collate_fn=self.batcher.collate_fn,
-            worker_init_fn=lambda x: np.random.seed(x + np.uint32(
-                torch.utils.data.get_worker_info().seed))
+            worker_init_fn=self.worker_init_fn
         )  # numpy expects np.uint32, whereas torch returns np.uint64.
 
-        valid_dataset = dataset.get_split('validation')
+        valid_dataset = dataset.get_split('val')
         valid_sampler = valid_dataset.sampler
         valid_split = TorchDataloader(dataset=valid_dataset,
                                       preprocess=model.preprocess,
@@ -371,13 +452,13 @@ class SemanticSegmentation(BasePipeline):
             num_workers=cfg.get('num_workers', 2),
             pin_memory=cfg.get('pin_memory', True),
             collate_fn=self.batcher.collate_fn,
-            worker_init_fn=lambda x: np.random.seed(x + np.uint32(
-                torch.utils.data.get_worker_info().seed)))
+            worker_init_fn=self.worker_init_fn
+        )
 
         self.optimizer, self.scheduler = model.get_optimizer(cfg)
 
         is_resume = model.cfg.get('is_resume', True)
-        self.load_ckpt(model.cfg.ckpt_path, is_resume=is_resume)
+        start_ep = self.load_ckpt(model.cfg.ckpt_path, is_resume=is_resume)
 
         dataset_name = dataset.name if dataset is not None else ''
         tensorboard_dir = join(
@@ -394,7 +475,7 @@ class SemanticSegmentation(BasePipeline):
 
         log.info("Started training")
 
-        for epoch in range(0, cfg.max_epoch + 1):
+        for epoch in range(start_ep, cfg.max_epoch + 1):
 
             log.info(f'=== EPOCH {epoch:d}/{cfg.max_epoch:d} ===')
             model.train()
@@ -410,24 +491,24 @@ class SemanticSegmentation(BasePipeline):
                 results = model(inputs['data'])
                 loss, gt_labels, predict_scores = model.get_loss(
                     Loss, results, inputs, device)
-
+            
                 if predict_scores.size()[-1] == 0:
                     continue
-
+            
                 loss.backward()
                 if model.cfg.get('grad_clip_norm', -1) > 0:
                     torch.nn.utils.clip_grad_value_(model.parameters(),
                                                     model.cfg.grad_clip_norm)
                 self.optimizer.step()
-
+            
                 self.metric_train.update(predict_scores, gt_labels)
-
+            
                 self.losses.append(loss.cpu().item())
                 # Save only for the first pcd in batch
                 if 'train' in record_summary and step == 0:
                     self.summary['train'] = self.get_3d_summary(
                         results, inputs['data'], epoch)
-
+            
             self.scheduler.step()
 
             # --------------------- validation
@@ -461,7 +542,7 @@ class SemanticSegmentation(BasePipeline):
             if epoch % cfg.save_ckpt_freq == 0 or epoch == cfg.max_epoch:
                 self.save_ckpt(epoch)
 
-    def get_batcher(self, device, split='training'):
+    def get_batcher(self, device, split='train'):
         """Get the batcher to be used based on the device and split."""
         batcher_name = getattr(self.model.cfg, 'batcher')
 
@@ -646,6 +727,8 @@ class SemanticSegmentation(BasePipeline):
                  f" eval: {acc_dicts[-1]['Validation accuracy']:.3f}")
         log.info(f"Mean IoU train: {iou_dicts[-1]['Training IoU']:.3f} "
                  f" eval: {iou_dicts[-1]['Validation IoU']:.3f}")
+        log.info(f"Training IoU: {train_ious}")
+        log.info(f"Validation IoU: {val_ious}")
 
         for stage in self.summary:
             for key, summary_dict in self.summary[stage].items():
@@ -657,32 +740,35 @@ class SemanticSegmentation(BasePipeline):
                               label_to_names=label_to_names)
 
     def load_ckpt(self, ckpt_path=None, is_resume=True):
-        """Load a checkpoint. You must pass the checkpoint and indicate if you
-        want to resume.
-        """
         train_ckpt_dir = join(self.cfg.logs_dir, 'checkpoint')
         make_dir(train_ckpt_dir)
 
+        epoch = 0
         if ckpt_path is None:
             ckpt_path = latest_torch_ckpt(train_ckpt_dir)
             if ckpt_path is not None and is_resume:
                 log.info('ckpt_path not given. Restore from the latest ckpt')
+                epoch = int(re.findall(r'\d+', ckpt_path)[-1]) + 1
             else:
                 log.info('Initializing from scratch.')
-                return
+                return epoch
 
         if not exists(ckpt_path):
             raise FileNotFoundError(f' ckpt {ckpt_path} not found')
 
         log.info(f'Loading checkpoint {ckpt_path}')
         ckpt = torch.load(ckpt_path, map_location=self.device)
+
         self.model.load_state_dict(ckpt['model_state_dict'])
         if 'optimizer_state_dict' in ckpt and hasattr(self, 'optimizer'):
-            log.info(f'Loading checkpoint optimizer_state_dict')
+            log.info('Loading checkpoint optimizer_state_dict')
             self.optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         if 'scheduler_state_dict' in ckpt and hasattr(self, 'scheduler'):
-            log.info(f'Loading checkpoint scheduler_state_dict')
+            log.info('Loading checkpoint scheduler_state_dict')
             self.scheduler.load_state_dict(ckpt['scheduler_state_dict'])
+
+        return epoch
+
 
     def save_ckpt(self, epoch):
         """Save a checkpoint at the passed epoch."""
